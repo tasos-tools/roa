@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tasos Tools - Private AI Platform</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial; max-width: 900px; margin: 50px auto; text-align: center; background: #1a1a2e; color: white; }
+        .container { background: #16213e; padding: 40px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .hidden { display: none; }
+        iframe { width: 100%; height: 700px; border: none; border-radius: 10px; margin-top: 20px; }
+        .btn { padding: 18px 40px; font-size: 20px; background: #00d4ff; color: #1a1a2e; border: none; border-radius: 50px; cursor: pointer; font-weight: bold; }
+        .btn:hover { background: #00b8e6; transform: translateY(-2px); }
+        h1 { font-size: 3em; background: linear-gradient(45deg, #00d4ff, #0099cc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛠️ Tasos Tools</h1>
+        <h2>Private AI Platform</h2>
+        <div id="login">
+            <button class="btn" onclick="accessTools()">ACCESS TOOLS</button>
+        </div>
+        <div id="content" class="hidden">
+            <h2>✅ Access Granted</h2>
+            <iframe src="https://hf.space/YOUR_SPACE_HERE"></iframe>
+        </div>
+    </div>
+    <script>
+        const CLIENT_ID = 'YOUR_CLIENT_ID'; 
+        const CLIENT_SECRET = 'YOUR_SECRET'; 
+        const GUILD_ID = 'YOUR_SERVER_ID'; 
+        const ROLE_ID = 'YOUR_ROLE_ID';
+        
+        function accessTools() {
+            window.location.href = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${window.location.href}&response_type=code&scope=identify%20guilds.members.read`;
+        }
+    </script>
+</body>
+</html>
