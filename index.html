@@ -10,28 +10,85 @@
         .btn { padding: 18px 40px; font-size: 20px; background: #00d4ff; color: #1a1a2e; border: none; border-radius: 50px; cursor: pointer; font-weight: bold; }
         .btn:hover { background: #00b8e6; transform: translateY(-2px); }
         h1 { font-size: 3em; background: linear-gradient(45deg, #00d4ff, #0099cc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        #status { padding: 15px; margin: 20px 0; border-radius: 10px; font-weight: bold; }
+        .error { background: #ff4444; }
+        .loading { background: #00d4ff; color: #1a1a2e; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🛠️ Tasos Tools</h1>
         <h2>Private AI Platform</h2>
+        
+        <div id="status" class="error">🔒 Access Locked</div>
+        
         <div id="login">
             <button class="btn" onclick="accessTools()">ACCESS TOOLS</button>
         </div>
+        
         <div id="content" class="hidden">
             <h2>✅ Access Granted</h2>
-            <iframe src="https://hf.space/YOUR_SPACE_HERE"></iframe>
+            <iframe id="hfFrame" src="https://hf.space/YOUR_SPACE_HERE"></iframe>
         </div>
     </div>
+
     <script>
-        const CLIENT_ID = 'YOUR_CLIENT_ID'; 
-        const CLIENT_SECRET = 'YOUR_SECRET'; 
-        const GUILD_ID = 'YOUR_SERVER_ID'; 
-        const ROLE_ID = 'YOUR_ROLE_ID';
+        // === CONFIGURATION - REPLACE THESE 4 VALUES ===
+        const CLIENT_ID = 'YOUR_CLIENT_ID_HERE';
+        const CLIENT_SECRET = 'YOUR_CLIENT_SECRET_HERE'; 
+        const GUILD_ID = 'YOUR_SERVER_ID_HERE';
+        const ROLE_ID = 'YOUR_ROLE_ID_HERE';
         
-        function accessTools() {
-            window.location.href = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${window.location.href}&response_type=code&scope=identify%20guilds.members.read`;
+        // Check for Discord callback
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('code')) {
+            verifyAccess(urlParams.get('code'));
+        }
+        
+        async function accessTools() {
+            const url = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(window.location.href)}&response_type=code&scope=identify%20guilds.members.read`;
+            window.location.href = url;
+        }
+        
+        async function verifyAccess(code) {
+            document.getElementById('status').textContent = '🔄 Verifying access...';
+            document.getElementById('status').className = 'loading';
+            
+            try {
+                // 1. Exchange code for token
+                const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        client_id: CLIENT_ID,
+                        client_secret: CLIENT_SECRET,
+                        grant_type: 'authorization_code',
+                        code: code,
+                        redirect_uri: window.location.href,
+                    })
+                });
+                
+                const tokenData = await tokenResponse.json();
+                
+                // 2. Get user guild member data
+                const memberResponse = await fetch(`https://discord.com/api/users/@me/guilds/${GUILD_ID}/member`, {
+                    headers: { Authorization: `Bearer ${tokenData.access_token}` }
+                });
+                
+                const memberData = await memberResponse.json();
+                
+                // 3. Check required role
+                if (memberData.roles.includes(ROLE_ID)) {
+                    document.getElementById('login').classList.add('hidden');
+                    document.getElementById('content').classList.remove('hidden');
+                    document.getElementById('status').textContent = '✅ Access Granted';
+                } else {
+                    throw new Error('Required role not found');
+                }
+            } catch (error) {
+                document.getElementById('status').textContent = '❌ Access Denied - Missing required role';
+                document.getElementById('status').className = 'error';
+            }
         }
     </script>
 </body>
