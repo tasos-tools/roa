@@ -1,21 +1,21 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <!-- Votre CSS reste identique -->
-</head>
+<!-- Votre head/style identique -->
 <body>
-    <!-- Votre HTML reste identique -->
+    <!-- Votre HTML identique -->
 
     <script>
-        // === CONFIG ===
         const CLIENT_ID = '1475488306534940682';
-        // SUPPRIMEZ CLIENT_SECRET !
         const GUILD_ID = '942494975235592314';
-        const ROLE_ID = '1475490055610175610';
 
-        // PKCE pour sécurité
-        let codeVerifier = localStorage.getItem('codeVerifier');
-        
+        let codeVerifier = '';
+
+        // Au chargement
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('code')) {
+            verifyAccess(urlParams.get('code'));
+        }
+
         async function accessTools() {
             codeVerifier = generateCodeVerifier();
             localStorage.setItem('codeVerifier', codeVerifier);
@@ -24,13 +24,13 @@
             const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(window.location.href)}&response_type=code&scope=identify%20guilds&code_challenge=${codeChallenge}&code_challenge_method=S256`;
             window.location.href = authUrl;
         }
-        
+
         async function verifyAccess(code) {
             document.getElementById('status').textContent = '🔄 Vérification...';
             document.getElementById('status').className = 'loading';
             
             try {
-                // 1. Échange code → token (PKCE)
+                // ✅ PKCE = PAS DE CLIENT_SECRET
                 const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -39,60 +39,61 @@
                         grant_type: 'authorization_code',
                         code: code,
                         redirect_uri: window.location.href,
-                        code_verifier: codeVerifier
+                        code_verifier: codeVerifier  // ← PKCE à la place
                     })
                 });
+
+                if (!tokenResponse.ok) {
+                    const errorData = await tokenResponse.json();
+                    throw new Error(`Token error: ${errorData.error || 'Unknown'}`);
+                }
                 
                 const tokenData = await tokenResponse.json();
                 
-                // 2. Récupère les serveurs de l'utilisateur
+                // Vérifie les serveurs
                 const guildsResponse = await fetch('https://discord.com/api/users/@me/guilds', {
                     headers: { Authorization: `Bearer ${tokenData.access_token}` }
                 });
                 
                 const guilds = await guildsResponse.json();
-                
-                // 3. Vérifie présence dans le serveur
                 const inGuild = guilds.some(guild => guild.id === GUILD_ID);
                 
                 if (inGuild) {
-                    // ✅ Membre du serveur → accès OK
                     showContent();
                 } else {
                     throw new Error('Non membre du serveur');
                 }
                 
             } catch (error) {
+                console.error('Erreur complète:', error);
                 document.getElementById('status').innerHTML = `❌ Accès refusé<br>${error.message}`;
                 document.getElementById('status').className = 'error';
             }
         }
 
-        // Fonctions PKCE
+        // PKCE functions
         function generateCodeVerifier() {
-            return Array.from(crypto.getRandomValues(new Uint8Array(32)))
-                .map(b => String.fromCharCode(b % 95 + 33)).join('').slice(0, 128);
+            let charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+            let verifier = '';
+            for (let i = 0; i < 128; i++) {
+                verifier += charset.charAt(Math.floor(Math.random() * charset.length));
+            }
+            return verifier;
         }
-        
+
         async function generateCodeChallenge(verifier) {
             const encoder = new TextEncoder();
             const data = encoder.encode(verifier);
-            const digest = await crypto.subtle.digest('SHA-256', data);
+            const digest = await window.crypto.subtle.digest('SHA-256', data);
             return btoa(String.fromCharCode(...new Uint8Array(digest)))
                 .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
         }
-        
+
         function showContent() {
             document.getElementById('login').classList.add('hidden');
             document.getElementById('content').classList.remove('hidden');
-            document.getElementById('status').textContent = '✅ Accès autorisé !';
+            document.getElementById('status').textContent = '✅ Bienvenue dans Tasos Tools !';
             document.getElementById('status').className = 'success';
-        }
-
-        // Auto-vérification au chargement
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('code')) {
-            verifyAccess(urlParams.get('code'));
         }
     </script>
 </body>
