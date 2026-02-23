@@ -14,6 +14,7 @@
         .error { background: #ff4444; }
         .loading { background: #00d4ff; color: #1a1a2e; }
         .success { background: #44ff44; color: #1a1a2e; }
+        #debug { background: #333; padding: 10px; border-radius: 5px; margin: 10px 0; font-size: 12px; max-height: 200px; overflow-y: auto; text-align: left; }
     </style>
 </head>
 <body>
@@ -22,6 +23,7 @@
         <h2>Private AI Platform</h2>
         
         <div id="status" class="error">🔒 Access Locked</div>
+        <div id="debug"></div>
         
         <div id="login">
             <button class="btn" onclick="accessTools()">ACCESS TOOLS</button>
@@ -40,25 +42,36 @@
         const GUILD_ID = '942494975235592314';
         const ROLE_ID = '1475490055610175610';
 
-        console.log('DEBUG - IDs:', {CLIENT_ID, GUILD_ID, ROLE_ID});
+        function debugLog(msg) {
+            console.log(msg);
+            const debugDiv = document.getElementById('debug');
+            debugDiv.innerHTML += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+            debugDiv.scrollTop = debugDiv.scrollHeight;
+        }
+
+        debugLog('DEBUG START - IDs: ' + CLIENT_ID + ' / ' + GUILD_ID + ' / ' + ROLE_ID);
 
         // Check for Discord callback code
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('code')) {
+            debugLog('CODE DETECTED: ' + urlParams.get('code'));
             verifyAccess(urlParams.get('code'));
         }
-        const hasRequiredRole = true; // DEBUG - Force accès
-
+        
         async function accessTools() {
+            debugLog('→ accessTools() appelée');
             const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(window.location.href)}&response_type=code&scope=identify%20guilds.members.read`;
+            debugLog('→ Redirection OAuth2: ' + authUrl.substring(0, 80) + '...');
             window.location.href = authUrl;
         }
         
         async function verifyAccess(code) {
+            debugLog('🔄 verifyAccess START avec code: ' + code.substring(0, 20) + '...');
             document.getElementById('status').textContent = '🔄 Verifying access...';
             document.getElementById('status').className = 'loading';
             
             try {
+                debugLog('→ 1. Token exchange...');
                 const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -71,31 +84,46 @@
                     })
                 });
                 
-                if (!tokenResponse.ok) throw new Error('Token exchange failed');
+                debugLog('→ Token status: ' + tokenResponse.status);
+                if (!tokenResponse.ok) throw new Error('Token exchange failed: ' + tokenResponse.status);
                 
                 const tokenData = await tokenResponse.json();
+                debugLog('→ Token OK, expires_in: ' + tokenData.expires_in);
                 
+                debugLog('→ 2. Fetch member data pour guild: ' + GUILD_ID);
                 const memberResponse = await fetch(`https://discord.com/api/users/@me/guilds/${GUILD_ID}/member`, {
                     headers: { Authorization: `Bearer ${tokenData.access_token}` }
                 });
                 
-                if (!memberResponse.ok) throw Error('Member data fetch failed');
+                debugLog('→ Member status: ' + memberResponse.status);
+                if (!memberResponse.ok) {
+                    const errorText = await memberResponse.text();
+                    debugLog('→ Member ERROR: ' + errorText);
+                    throw new Error('Member data fetch failed: ' + memberResponse.status + ' - ' + errorText);
+                }
                 
                 const memberData = await memberResponse.json();
+                debugLog('→ MEMBER DATA: ' + JSON.stringify(memberData));
+                debugLog('→ ROLES: ' + JSON.stringify(memberData.roles));
+                debugLog('→ ROLE REQUIRED: ' + ROLE_ID);
                 
                 const hasRequiredRole = memberData.roles.includes(ROLE_ID);
+                debugLog('→ hasRequiredRole: ' + hasRequiredRole);
                 
                 if (hasRequiredRole) {
+                    debugLog('✅ ACCESS GRANTED!');
                     document.getElementById('login').classList.add('hidden');
                     document.getElementById('content').classList.remove('hidden');
                     document.getElementById('status').textContent = '✅ Access Granted - Welcome to Tasos Tools!';
                     document.getElementById('status').className = 'success';
                 } else {
-                    throw new Error('Required role not found');
+                    debugLog('❌ ROLE MANQUANT');
+                    throw new Error('Required role not found: ' + ROLE_ID);
                 }
             } catch (error) {
+                debugLog('❌ ERREUR TOTALE: ' + error.message);
                 console.error('Access verification failed:', error);
-                document.getElementById('status').innerHTML = '❌ Access Denied<br>Required Member role missing';
+                document.getElementById('status').innerHTML = '❌ Access Denied<br>' + error.message;
                 document.getElementById('status').className = 'error';
             }
         }
