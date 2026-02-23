@@ -1,156 +1,110 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Tasos Tools - Private AI Platform</title>
-    <style>
-        body { font-family: 'Segoe UI', Arial; max-width: 900px; margin: 50px auto; text-align: center; background: #1a1a2e; color: white; }
-        .container { background: #16213e; padding: 40px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .hidden { display: none; }
-        iframe { width: 100%; height: 700px; border: none; border-radius: 10px; margin-top: 20px; }
-        .btn { padding: 18px 40px; font-size: 20px; background: #00d4ff; color: #1a1a2e; border: none; border-radius: 50px; cursor: pointer; font-weight: bold; }
-        .btn:hover { background: #00b8e6; transform: translateY(-2px); }
-        h1 { font-size: 3em; background: linear-gradient(45deg, #00d4ff, #0099cc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        #status { padding: 15px; margin: 20px 0; border-radius: 10px; font-weight: bold; }
-        .error { background: #ff4444; }
-        .loading { background: #00d4ff; color: #1a1a2e; }
-        .success { background: #44ff44; color: #1a1a2e; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🛠️ Tasos Tools</h1>
-        <h2>Private AI Platform</h2>
-        
-        <div id="status">🔒 Accès verrouillé</div>
-        
-        <div id="login">
-            <button class="btn" onclick="accessTools()">ACCESS TOOLS</button>
-        </div>
-        
-        <div id="content" class="hidden">
-            <h2>✅ Accès autorisé</h2>
-            <iframe id="hfFrame" src="https://nelrem-roa-treasure-finder.hf.space"></iframe>
-        </div>
-    </div>
+<script>
+// FIXED - Clé storage STATIQUE
+const STATE_KEY = 'tasos_discord_auth';  // ← UNIQUEMENT ÇA À CHANGER
+const CLIENT_ID = '1475488306534940682';
+const GUILD_ID = '942494975235592314';
 
-    <script>
-        const CLIENT_ID = '1475488306534940682';
-        const GUILD_ID = '942494975235592314';
+// Au chargement
+window.addEventListener('load', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('code')) {
+        verifyAccess(urlParams.get('code'));
+    }
+});
 
-        // ✅ STATE PERSISTANT (fix PKCE)
-        const STATE_KEY = 'discord_state_' + Math.random().toString(36).substr(2, 9);
+async function accessTools() {
+    // Stockage SIMPLE
+    sessionStorage.setItem('pkce_verifier', generateCodeVerifier());
+    sessionStorage.setItem('auth_state', generateRandomString(16));
+    
+    const verifier = sessionStorage.getItem('pkce_verifier');
+    const challenge = await generateCodeChallenge(verifier);
+    
+    const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(window.location.href)}&response_type=code&scope=identify%20guilds&state=${sessionStorage.getItem('auth_state')}&code_challenge=${challenge}&code_challenge_method=S256`;
+    window.location.href = authUrl;
+}
 
-        // Au chargement
-        window.addEventListener('load', function() {
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('code')) {
-                const storedState = localStorage.getItem(STATE_KEY + '_state');
-                const urlState = urlParams.get('state');
-                
-                if (storedState === urlState) {
-                    verifyAccess(urlParams.get('code'));
-                } else {
-                    document.getElementById('status').innerHTML = '❌ État invalide (retry)';
-                    document.getElementById('status').className = 'error';
-                }
-            }
+async function verifyAccess(code) {
+    const statusEl = document.getElementById('status');
+    statusEl.textContent = '🔄 Vérification...';
+    statusEl.className = 'loading';
+    
+    const verifier = sessionStorage.getItem('pkce_verifier');
+    const storedState = sessionStorage.getItem('auth_state');
+    const urlState = new URLSearchParams(window.location.search).get('state');
+    
+    // Vérif state
+    if (storedState !== urlState) {
+        statusEl.innerHTML = '❌ État invalide';
+        return;
+    }
+    
+    if (!verifier) {
+        statusEl.innerHTML = '❌ PKCE manquant - cliquer retry';
+        return;
+    }
+    
+    try {
+        // Token exchange
+        const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                client_id: CLIENT_ID,
+                grant_type: 'authorization_code',
+                code: code,
+                redirect_uri: window.location.href,
+                code_verifier: verifier
+            })
         });
 
-        async function accessTools() {
-            // ✅ Génère state ET codeVerifier persistants
-            const state = generateRandomString(16);
-            const codeVerifier = generateCodeVerifier();
-            
-            localStorage.setItem(STATE_KEY + '_state', state);
-            localStorage.setItem(STATE_KEY + '_verifier', codeVerifier);
-            
-            const codeChallenge = await generateCodeChallenge(codeVerifier);
-            
-            const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(window.location.href)}&response_type=code&scope=identify%20guilds&state=${state}&code_challenge=${codeChallenge}&code_challenge_method=S256`;
-            
-            window.location.href = authUrl;
-        }
-
-        async function verifyAccess(code) {
-            const statusEl = document.getElementById('status');
-            statusEl.textContent = '🔄 Vérification...';
-            statusEl.className = 'loading';
-            
-            try {
-                // ✅ Récupère PKCE du storage
-                const codeVerifier = localStorage.getItem(STATE_KEY + '_verifier');
-                if (!codeVerifier) {
-                    throw new Error('PKCE perdu - rechargez et réessayez');
-                }
-                
-                // 1. Token exchange
-                const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({
-                        client_id: CLIENT_ID,
-                        grant_type: 'authorization_code',
-                        code: code,
-                        redirect_uri: window.location.href,
-                        code_verifier: codeVerifier
-                    })
-                });
-
-                if (!tokenResponse.ok) {
-                    const errorText = await tokenResponse.text();
-                    throw new Error(`HTTP ${tokenResponse.status}: ${errorText}`);
-                }
-                
-                const tokenData = await tokenResponse.json();
-                
-                // 2. Vérifie serveur
-                const guildsResponse = await fetch('https://discord.com/api/users/@me/guilds', {
-                    headers: { Authorization: `Bearer ${tokenData.access_token}` }
-                });
-                
-                const guilds = await guildsResponse.json();
-                const inGuild = guilds.some(guild => guild.id === GUILD_ID);
-                
-                if (inGuild) {
-                    localStorage.removeItem(STATE_KEY + '_state');
-                    localStorage.removeItem(STATE_KEY + '_verifier');
-                    showContent();
-                } else {
-                    throw new Error('Non membre du serveur 942494975235592314');
-                }
-                
-            } catch (error) {
-                console.error('Erreur:', error);
-                statusEl.innerHTML = `❌ ${error.message}`;
-                statusEl.className = 'error';
-            }
-        }
-
-        // Utilitaires
-        function generateRandomString(length) {
-            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-            return Array.from({length}).map(() => chars[Math.floor(Math.random() * chars.length)]).join('');
-        }
-
-        function generateCodeVerifier() {
-            const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-            return Array.from({length: 128}).map(() => charset[Math.floor(Math.random() * charset.length)]).join('');
+        if (!tokenResponse.ok) throw new Error(`HTTP ${tokenResponse.status}`);
+        
+        const tokenData = await tokenResponse.json();
+        
+        // Vérif serveur
+        const guildsResponse = await fetch('https://discord.com/api/users/@me/guilds', {
+            headers: { Authorization: `Bearer ${tokenData.access_token}` }
+        });
+        
+        const guilds = await guildsResponse.json();
+        const inGuild = guilds.some(guild => guild.id === GUILD_ID);
+        
+        if (inGuild) {
+            sessionStorage.clear(); // Cleanup
+            showContent();
+        } else {
+            statusEl.innerHTML = '❌ Non membre du serveur';
         }
         
-        async function generateCodeChallenge(verifier) {
-            const encoder = new TextEncoder();
-            const data = encoder.encode(verifier);
-            const digest = await crypto.subtle.digest('SHA-256', data);
-            return btoa(String.fromCharCode(...new Uint8Array(digest)))
-                .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-        }
-        
-        function showContent() {
-            document.getElementById('login').classList.add('hidden');
-            document.getElementById('content').classList.remove('hidden');
-            document.getElementById('status').textContent = '✅ Tasos Tools accessibles !';
-            document.getElementById('status').className = 'success';
-        }
-    </script>
-</body>
-</html>
+    } catch (error) {
+        statusEl.innerHTML = `❌ ${error.message}`;
+    }
+}
+
+// Utils
+function generateRandomString(length) {
+    return Array.from(crypto.getRandomValues(new Uint8Array(length)))
+        .map(b => b % 62).map(x => '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'[x]).join('');
+}
+
+function generateCodeVerifier() {
+    return Array.from(crypto.getRandomValues(new Uint8Array(64)))
+        .map(b => String.fromCharCode(b % 94 + 33)).join('').slice(0, 128);
+}
+
+async function generateCodeChallenge(verifier) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(verifier);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return btoa(String.fromCharCode(...new Uint8Array(digest)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function showContent() {
+    document.getElementById('login').classList.add('hidden');
+    document.getElementById('content').classList.remove('hidden');
+    document.getElementById('status').textContent = '✅ Accès autorisé !';
+    document.getElementById('status').className = 'success';
+}
+</script>
