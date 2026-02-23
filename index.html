@@ -1,100 +1,98 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Tasos Tools - Private AI Platform</title>
-    <style>
-        body { font-family: 'Segoe UI', Arial; max-width: 900px; margin: 50px auto; text-align: center; background: #1a1a2e; color: white; }
-        .container { background: #16213e; padding: 40px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        .hidden { display: none; }
-        iframe { width: 100%; height: 700px; border: none; border-radius: 10px; margin-top: 20px; }
-        .btn { padding: 18px 40px; font-size: 20px; background: #00d4ff; color: #1a1a2e; border: none; border-radius: 50px; cursor: pointer; font-weight: bold; }
-        .btn:hover { background: #00b8e6; transform: translateY(-2px); }
-        h1 { font-size: 3em; background: linear-gradient(45deg, #00d4ff, #0099cc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        #status { padding: 15px; margin: 20px 0; border-radius: 10px; font-weight: bold; }
-        .error { background: #ff4444; }
-        .loading { background: #00d4ff; color: #1a1a2e; }
-        .success { background: #44ff44; color: #1a1a2e; }
-    </style>
+    <!-- Votre CSS reste identique -->
 </head>
 <body>
-    <div class="container">
-        <h1>🛠️ Tasos Tools</h1>
-        <h2>Private AI Platform</h2>
-        
-        <div id="status" class="error">🔒 Access Locked</div>
-        
-        <div id="login">
-            <button class="btn" onclick="accessTools()">ACCESS TOOLS</button>
-        </div>
-        
-        <div id="content" class="hidden">
-            <h2>✅ Access Granted</h2>
-            <iframe id="hfFrame" src="https://nelrem-roa-treasure-finder.hf.space"></iframe>
-        </div>
-    </div>
+    <!-- Votre HTML reste identique -->
 
     <script>
         // === CONFIG ===
         const CLIENT_ID = '1475488306534940682';
-        const CLIENT_SECRET = '5xSKy7zAalp7hyuo_1Ol8qyEdg7pOVU6'; 
+        // SUPPRIMEZ CLIENT_SECRET !
         const GUILD_ID = '942494975235592314';
         const ROLE_ID = '1475490055610175610';
 
-        // Check for Discord callback code
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('code')) {
-            verifyAccess(urlParams.get('code'));
-        }
+        // PKCE pour sécurité
+        let codeVerifier = localStorage.getItem('codeVerifier');
         
         async function accessTools() {
-            const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(window.location.href)}&response_type=code&scope=identify%20guilds.members.read`;
+            codeVerifier = generateCodeVerifier();
+            localStorage.setItem('codeVerifier', codeVerifier);
+            
+            const codeChallenge = await generateCodeChallenge(codeVerifier);
+            const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(window.location.href)}&response_type=code&scope=identify%20guilds&code_challenge=${codeChallenge}&code_challenge_method=S256`;
             window.location.href = authUrl;
         }
         
         async function verifyAccess(code) {
-            document.getElementById('status').textContent = '🔄 Verifying access...';
+            document.getElementById('status').textContent = '🔄 Vérification...';
             document.getElementById('status').className = 'loading';
             
             try {
-                // 1. Get token
+                // 1. Échange code → token (PKCE)
                 const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: new URLSearchParams({
                         client_id: CLIENT_ID,
-                        client_secret: CLIENT_SECRET,
                         grant_type: 'authorization_code',
                         code: code,
                         redirect_uri: window.location.href,
+                        code_verifier: codeVerifier
                     })
                 });
                 
-                if (!tokenResponse.ok) throw new Error('Token exchange failed');
                 const tokenData = await tokenResponse.json();
                 
-                // 2. Get member data
-                const memberResponse = await fetch(`https://discord.com/api/users/@me/guilds/${GUILD_ID}/member`, {
+                // 2. Récupère les serveurs de l'utilisateur
+                const guildsResponse = await fetch('https://discord.com/api/users/@me/guilds', {
                     headers: { Authorization: `Bearer ${tokenData.access_token}` }
                 });
                 
-                if (!memberResponse.ok) throw Error('Member data fetch failed');
-                const memberData = await memberResponse.json();
+                const guilds = await guildsResponse.json();
                 
-                // DEBUG: FORCE ACCESS (ignore role check)
-                console.log('DEBUG ROLES:', memberData.roles);
-                console.log('DEBUG REQUIRED ROLE:', ROLE_ID);
+                // 3. Vérifie présence dans le serveur
+                const inGuild = guilds.some(guild => guild.id === GUILD_ID);
                 
-                // FORCE ACCESS - ON IGNORE LE RÔLE POUR TEST
-                document.getElementById('login').classList.add('hidden');
-                document.getElementById('content').classList.remove('hidden');
-                document.getElementById('status').textContent = '✅ Access Granted - Welcome to Tasos Tools!';
-                document.getElementById('status').className = 'success';
+                if (inGuild) {
+                    // ✅ Membre du serveur → accès OK
+                    showContent();
+                } else {
+                    throw new Error('Non membre du serveur');
+                }
                 
             } catch (error) {
-                console.error('Access verification failed:', error);
-                document.getElementById('status').innerHTML = `❌ Access Denied<br>Debug: ${error.message}`;
+                document.getElementById('status').innerHTML = `❌ Accès refusé<br>${error.message}`;
                 document.getElementById('status').className = 'error';
             }
+        }
+
+        // Fonctions PKCE
+        function generateCodeVerifier() {
+            return Array.from(crypto.getRandomValues(new Uint8Array(32)))
+                .map(b => String.fromCharCode(b % 95 + 33)).join('').slice(0, 128);
+        }
+        
+        async function generateCodeChallenge(verifier) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(verifier);
+            const digest = await crypto.subtle.digest('SHA-256', data);
+            return btoa(String.fromCharCode(...new Uint8Array(digest)))
+                .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        }
+        
+        function showContent() {
+            document.getElementById('login').classList.add('hidden');
+            document.getElementById('content').classList.remove('hidden');
+            document.getElementById('status').textContent = '✅ Accès autorisé !';
+            document.getElementById('status').className = 'success';
+        }
+
+        // Auto-vérification au chargement
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('code')) {
+            verifyAccess(urlParams.get('code'));
         }
     </script>
 </body>
