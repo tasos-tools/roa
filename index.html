@@ -1,28 +1,21 @@
-async function accessTools() {
-    const verifier = generateCodeVerifier();
-    const state = generateRandomString(16);
-    const challenge = await generateCodeChallenge(verifier);
-    
-    // ✅ ENCODE DANS L'URL (indestructible !)
-    const url = new URL(window.location.href);
-    url.hash = btoa(JSON.stringify({verifier, state}));
-    
-    sessionStorage.setItem('discord_pending', '1'); // Flag
-    
-    const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(url.href)}&response_type=code&scope=identify%20guilds&state=${state}&code_challenge=${challenge}&code_challenge_method=S256`;
-    window.location.href = authUrl;
-}
-
 async function verifyAccess(code) {
     const statusEl = document.getElementById('status');
     statusEl.textContent = '🔄 Vérification...';
     statusEl.className = 'loading';
     
     try {
-        // ✅ Récupère du hash URL
-        const hashData = JSON.parse(atob(new URLSearchParams(window.location.hash.slice(1)).get('') || '{}'));
-        const {verifier, state} = hashData;
+        // ✅ FIX HASH PARSING
+        const hashMatch = window.location.hash.match(/#(.*)/);
+        let hashData = {};
+        if (hashMatch) {
+            try {
+                hashData = JSON.parse(atob(hashMatch[1]));
+            } catch(e) {
+                console.log('Hash parse failed:', e);
+            }
+        }
         
+        const {verifier, state} = hashData;
         if (!verifier) throw new Error('PKCE dans URL manquant');
         
         const urlState = new URLSearchParams(window.location.search).get('state');
@@ -36,7 +29,7 @@ async function verifyAccess(code) {
                 client_id: CLIENT_ID,
                 grant_type: 'authorization_code',
                 code: code,
-                redirect_uri: window.location.origin + window.location.pathname,
+                redirect_uri: window.location.origin + window.location.pathname + window.location.hash,
                 code_verifier: verifier
             })
         });
@@ -52,12 +45,10 @@ async function verifyAccess(code) {
         const guildsResponse = await fetch('https://discord.com/api/users/@me/guilds', {
             headers: { Authorization: `Bearer ${tokenData.access_token}` }
         });
-        
         const guilds = await guildsResponse.json();
         const inGuild = guilds.some(guild => guild.id === GUILD_ID);
         
         if (inGuild) {
-            // Nettoie URL
             window.location.replace(window.location.pathname);
             showContent();
         } else {
