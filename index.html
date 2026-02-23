@@ -1,26 +1,15 @@
-<script>
-// FIXED - Clé storage STATIQUE
-const STATE_KEY = 'tasos_discord_auth';  // ← UNIQUEMENT ÇA À CHANGER
-const CLIENT_ID = '1475488306534940682';
-const GUILD_ID = '942494975235592314';
-
-// Au chargement
-window.addEventListener('load', function() {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('code')) {
-        verifyAccess(urlParams.get('code'));
-    }
-});
-
 async function accessTools() {
-    // Stockage SIMPLE
-    sessionStorage.setItem('pkce_verifier', generateCodeVerifier());
-    sessionStorage.setItem('auth_state', generateRandomString(16));
-    
-    const verifier = sessionStorage.getItem('pkce_verifier');
+    const verifier = generateCodeVerifier();
+    const state = generateRandomString(16);
     const challenge = await generateCodeChallenge(verifier);
     
-    const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(window.location.href)}&response_type=code&scope=identify%20guilds&state=${sessionStorage.getItem('auth_state')}&code_challenge=${challenge}&code_challenge_method=S256`;
+    // ✅ ENCODE DANS L'URL (indestructible !)
+    const url = new URL(window.location.href);
+    url.hash = btoa(JSON.stringify({verifier, state}));
+    
+    sessionStorage.setItem('discord_pending', '1'); // Flag
+    
+    const authUrl = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(url.href)}&response_type=code&scope=identify%20guilds&state=${state}&code_challenge=${challenge}&code_challenge_method=S256`;
     window.location.href = authUrl;
 }
 
@@ -29,22 +18,16 @@ async function verifyAccess(code) {
     statusEl.textContent = '🔄 Vérification...';
     statusEl.className = 'loading';
     
-    const verifier = sessionStorage.getItem('pkce_verifier');
-    const storedState = sessionStorage.getItem('auth_state');
-    const urlState = new URLSearchParams(window.location.search).get('state');
-    
-    // Vérif state
-    if (storedState !== urlState) {
-        statusEl.innerHTML = '❌ État invalide';
-        return;
-    }
-    
-    if (!verifier) {
-        statusEl.innerHTML = '❌ PKCE manquant - cliquer retry';
-        return;
-    }
-    
     try {
+        // ✅ Récupère du hash URL
+        const hashData = JSON.parse(atob(new URLSearchParams(window.location.hash.slice(1)).get('') || '{}'));
+        const {verifier, state} = hashData;
+        
+        if (!verifier) throw new Error('PKCE dans URL manquant');
+        
+        const urlState = new URLSearchParams(window.location.search).get('state');
+        if (state !== urlState) throw new Error('État invalide');
+        
         // Token exchange
         const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
             method: 'POST',
@@ -53,12 +36,15 @@ async function verifyAccess(code) {
                 client_id: CLIENT_ID,
                 grant_type: 'authorization_code',
                 code: code,
-                redirect_uri: window.location.href,
+                redirect_uri: window.location.origin + window.location.pathname,
                 code_verifier: verifier
             })
         });
 
-        if (!tokenResponse.ok) throw new Error(`HTTP ${tokenResponse.status}`);
+        if (!tokenResponse.ok) {
+            const errorText = await tokenResponse.text();
+            throw new Error(`Token échoué: ${errorText}`);
+        }
         
         const tokenData = await tokenResponse.json();
         
@@ -71,40 +57,15 @@ async function verifyAccess(code) {
         const inGuild = guilds.some(guild => guild.id === GUILD_ID);
         
         if (inGuild) {
-            sessionStorage.clear(); // Cleanup
+            // Nettoie URL
+            window.location.replace(window.location.pathname);
             showContent();
         } else {
-            statusEl.innerHTML = '❌ Non membre du serveur';
+            throw new Error('Non membre du serveur');
         }
         
     } catch (error) {
         statusEl.innerHTML = `❌ ${error.message}`;
+        statusEl.className = 'error';
     }
 }
-
-// Utils
-function generateRandomString(length) {
-    return Array.from(crypto.getRandomValues(new Uint8Array(length)))
-        .map(b => b % 62).map(x => '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'[x]).join('');
-}
-
-function generateCodeVerifier() {
-    return Array.from(crypto.getRandomValues(new Uint8Array(64)))
-        .map(b => String.fromCharCode(b % 94 + 33)).join('').slice(0, 128);
-}
-
-async function generateCodeChallenge(verifier) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(verifier);
-    const digest = await crypto.subtle.digest('SHA-256', data);
-    return btoa(String.fromCharCode(...new Uint8Array(digest)))
-        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-function showContent() {
-    document.getElementById('login').classList.add('hidden');
-    document.getElementById('content').classList.remove('hidden');
-    document.getElementById('status').textContent = '✅ Accès autorisé !';
-    document.getElementById('status').className = 'success';
-}
-</script>
